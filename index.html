@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Law of Large Numbers - Multiple Trajectories</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            display: flex;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .main-chart {
+            flex: 3;
+            position: relative;
+        }
+        .histogram-sidebar {
+            flex: 1;
+            min-width: 200px;
+            border-left: 2px solid #ddd;
+            padding-left: 20px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .control-group {
+            margin: 10px 0;
+        }
+        label {
+            display: inline-block;
+            width: 180px;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            width: 200px;
+            vertical-align: middle;
+        }
+        .value-display {
+            display: inline-block;
+            width: 60px;
+            text-align: center;
+            font-weight: bold;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .info-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        canvas {
+            max-width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-chart">
+            <h2>Law of Large Numbers - Multiple Trajectories</h2>
+            
+            <div class="controls">
+                <div class="control-group">
+                    <label for="probability">Probability (p):</label>
+                    <input type="range" id="probability" min="0.1" max="0.9" step="0.05" value="0.3">
+                    <span class="value-display" id="probability-value">0.30</span>
+                </div>
+                
+                <div class="control-group">
+                    <label for="trajectories">Trajectories (m):</label>
+                    <input type="range" id="trajectories" min="5" max="50" step="5" value="20">
+                    <span class="value-display" id="trajectories-value">20</span>
+                </div>
+                
+                <div class="control-group">
+                    <label for="trials">Trials (n):</label>
+                    <input type="range" id="trials" min="100" max="2000" step="100" value="1000">
+                    <span class="value-display" id="trials-value">1000</span>
+                </div>
+                
+                <button id="simulate-btn">Run Simulation</button>
+                <button id="reset-btn">Reset</button>
+            </div>
+            
+            <div style="position: relative; height: 400px;">
+                <canvas id="trajectories-chart"></canvas>
+            </div>
+            
+            <div class="info-panel">
+                <p><strong>Current simulation:</strong> p = <span id="current-p">0.30</span>, 
+                m = <span id="current-m">20</span>, n = <span id="current-n">1000</span></p>
+                <p><strong>Mean of final frequencies:</strong> <span id="mean-value">0.00</span></p>
+                <p><strong>Standard deviation:</strong> <span id="std-value">0.00</span></p>
+            </div>
+        </div>
+        
+        <div class="histogram-sidebar">
+            <h3>Distribution of f(n)</h3>
+            <div style="height: 400px;">
+                <canvas id="histogram-chart"></canvas>
+            </div>
+            <div class="info-panel">
+                <p><strong>Theoretical std:</strong> <span id="theoretical-std">0.00</span></p>
+                <p><strong>Empirical std:</strong> <span id="empirical-std">0.00</span></p>
+                <p><strong>Convergence ratio:</strong> <span id="convergence-ratio">0.00</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM elements
+        const probabilitySlider = document.getElementById('probability');
+        const probabilityValue = document.getElementById('probability-value');
+        const trajectoriesSlider = document.getElementById('trajectories');
+        const trajectoriesValue = document.getElementById('trajectories-value');
+        const trialsSlider = document.getElementById('trials');
+        const trialsValue = document.getElementById('trials-value');
+        const simulateBtn = document.getElementById('simulate-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        
+        // Info displays
+        const currentP = document.getElementById('current-p');
+        const currentM = document.getElementById('current-m');
+        const currentN = document.getElementById('current-n');
+        const meanValue = document.getElementById('mean-value');
+        const stdValue = document.getElementById('std-value');
+        const theoreticalStd = document.getElementById('theoretical-std');
+        const empiricalStd = document.getElementById('empirical-std');
+        const convergenceRatio = document.getElementById('convergence-ratio');
+        
+        // Chart instances
+        let trajectoriesChart = null;
+        let histogramChart = null;
+        
+        // Update value displays
+        probabilitySlider.addEventListener('input', () => {
+            const value = parseFloat(probabilitySlider.value).toFixed(2);
+            probabilityValue.textContent = value;
+            currentP.textContent = value;
+        });
+        
+        trajectoriesSlider.addEventListener('input', () => {
+            trajectoriesValue.textContent = trajectoriesSlider.value;
+            currentM.textContent = trajectoriesSlider.value;
+        });
+        
+        trialsSlider.addEventListener('input', () => {
+            trialsValue.textContent = trialsSlider.value;
+            currentN.textContent = trialsSlider.value;
+        });
+        
+        // Initialize charts
+        function initializeCharts() {
+            const trajectoriesCtx = document.getElementById('trajectories-chart').getContext('2d');
+            const histogramCtx = document.getElementById('histogram-chart').getContext('2d');
+            
+            // Destroy existing charts
+            if (trajectoriesChart) trajectoriesChart.destroy();
+            if (histogramChart) histogramChart.destroy();
+            
+            // Trajectories chart (horizontal)
+            trajectoriesChart = new Chart(trajectoriesCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Number of Trials (n)'
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Relative Frequency f(n)'
+                            },
+                            min: 0,
+                            max: 1,
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'nearest',
+                            intersect: false
+                        }
+                    },
+                    elements: {
+                        point: {
+                            radius: 0
+                        },
+                        line: {
+                            tension: 0.1
+                        }
+                    }
+                }
+            });
+            
+            // Histogram chart (vertical)
+            histogramChart = new Chart(histogramCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Frequency',
+                        data: [],
+                        backgroundColor: 'rgba(74, 134, 232, 0.7)',
+                        borderColor: 'rgba(74, 134, 232, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Horizontal bars
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Frequency Count'
+                            },
+                            beginAtZero: true
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Relative Frequency'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Run simulation
+        function runSimulation() {
+            const p = parseFloat(probabilitySlider.value);
+            const m = parseInt(trajectoriesSlider.value);
+            const n = parseInt(trialsSlider.value);
+            
+            // Generate trajectories
+            const trajectoriesData = [];
+            const finalFrequencies = [];
+            
+            for (let i = 0; i < m; i++) {
+                const trajectory = [];
+                let successes = 0;
+                
+                for (let j = 1; j <= n; j++) {
+                    // Bernoulli trial
+                    if (Math.random() < p) {
+                        successes++;
+                    }
+                    trajectory.push(successes / j);
+                }
+                
+                trajectoriesData.push(trajectory);
+                finalFrequencies.push(trajectory[n-1]);
+            }
+            
+            // Update trajectories chart
+            const labels = Array.from({length: n}, (_, i) => i + 1);
+            
+            trajectoriesChart.data.labels = labels;
+            trajectoriesChart.data.datasets = [];
+            
+            // Add trajectory lines with semi-transparent colors
+            for (let i = 0; i < m; i++) {
+                trajectoriesChart.data.datasets.push({
+                    label: `Trajectory ${i+1}`,
+                    data: trajectoriesData[i],
+                    borderColor: `rgba(70, 130, 180, 0.3)`,
+                    backgroundColor: 'rgba(0,0,0,0)',
+                    borderWidth: 1,
+                    pointRadius: 0
+                });
+            }
+            
+            // Add theoretical probability line (thick red line)
+            trajectoriesChart.data.datasets.push({
+                label: 'Theoretical Probability',
+                data: Array(n).fill(p),
+                borderColor: 'rgba(220, 20, 60, 1)',
+                backgroundColor: 'rgba(0,0,0,0)',
+                borderWidth: 3,
+                pointRadius: 0,
+                borderDash: [0, 0]
+            });
+            
+            trajectoriesChart.update();
+            
+            // Update histogram with final frequencies
+            updateHistogram(finalFrequencies, p, n);
+            
+            // Update statistics
+            updateStatistics(finalFrequencies, p, n);
+        }
+        
+        // Update histogram
+        function updateHistogram(frequencies, p, n) {
+            const bins = 15;
+            const min = Math.min(...frequencies);
+            const max = Math.max(...frequencies);
+            const binSize = (max - min) / bins;
+            
+            const histogram = Array(bins).fill(0);
+            const binLabels = [];
+            
+            // Create bins and count frequencies
+            for (let i = 0; i < bins; i++) {
+                const binStart = min + i * binSize;
+                const binEnd = binStart + binSize;
+                binLabels.push(binStart.toFixed(3));
+                
+                for (const freq of frequencies) {
+                    if (freq >= binStart && (i === bins-1 ? freq <= binEnd : freq < binEnd)) {
+                        histogram[i]++;
+                    }
+                }
+            }
+            
+            histogramChart.data.labels = binLabels;
+            histogramChart.data.datasets[0].data = histogram;
+            histogramChart.update();
+        }
+        
+        // Update statistics
+        function updateStatistics(frequencies, p, n) {
+            const mean = frequencies.reduce((a, b) => a + b, 0) / frequencies.length;
+            const variance = frequencies.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / frequencies.length;
+            const std = Math.sqrt(variance);
+            
+            // Theoretical standard deviation for binomial distribution
+            const theoreticalStdDev = Math.sqrt(p * (1 - p) / n);
+            
+            meanValue.textContent = mean.toFixed(4);
+            stdValue.textContent = std.toFixed(4);
+            theoreticalStd.textContent = theoreticalStdDev.toFixed(4);
+            empiricalStd.textContent = std.toFixed(4);
+            convergenceRatio.textContent = (std / theoreticalStdDev).toFixed(4);
+        }
+        
+        // Reset simulation
+        function resetSimulation() {
+            probabilitySlider.value = 0.3;
+            trajectoriesSlider.value = 20;
+            trialsSlider.value = 1000;
+            
+            probabilityValue.textContent = '0.30';
+            trajectoriesValue.textContent = '20';
+            trialsValue.textContent = '1000';
+            
+            currentP.textContent = '0.30';
+            currentM.textContent = '20';
+            currentN.textContent = '1000';
+            
+            runSimulation();
+        }
+        
+        // Event listeners
+        simulateBtn.addEventListener('click', runSimulation);
+        resetBtn.addEventListener('click', resetSimulation);
+        
+        // Initialize on load
+        window.addEventListener('load', () => {
+            initializeCharts();
+            runSimulation();
+        });
+    </script>
+</body>
+</html>
